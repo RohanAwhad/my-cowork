@@ -1,0 +1,15 @@
+---
+title: RH Co-work — Context
+---
+graph TD
+    D(["Developer"])
+    CW[RH Co-work]
+    subgraph EXT["External"]
+        ANTH[Anthropic API]
+        HFS[(Host filesystem)]
+    end
+    D -->|"starts sessions, grants folders, sets policies"| CW
+    CW -->|"streams sessions, artifacts, notices, audit trail"| D
+    CW -->|"sends agent traffic"| ANTH
+    ANTH -->|"returns model responses"| CW
+    CW -->|"reads and writes user files, persists state"| HFS

@@ -1,0 +1,45 @@
+---
+title: RH Co-work — Components
+---
+graph TD
+    subgraph APP["RH Co-work App"]
+        WS[WorkspaceServer]
+        SM[SessionManager]
+        RA[RunnerAdapter]
+        PG[PermissionGate]
+        EB[EventBus]
+        AW[ArtifactWatcher]
+        SE[SchedulerEngine]
+        CR[ConnectorRegistry]
+        ST[Storage]
+        AU[Auth]
+    end
+    CLI[claude CLI subprocess]
+    DB[(SQLite)]
+    HFS[(Host filesystem)]
+
+    WS -->|"session commands over HTTP and WS"| SM
+    WS -->|"task commands over HTTP and WS"| SE
+    EB -->|"streams session, artifact, notice events to"| WS
+    EB -->|"carries session events and denials to"| PG
+    WS -->|"queries session and artifact state via"| ST
+    AU -.->|"no-op in v1 (local only)"| WS
+    SM -->|"spawns, sends input to"| RA
+    RA -->|"streams events to"| SM
+    RA -->|"spawns with stream-json, NDJSON pipes"| CLI
+    CLI -->|"writes and reads files in"| HFS
+    AW -->|"watches outputs dirs on"| HFS
+    AW -->|"persists artifact records and versions via"| ST
+    PG -->|"routes spawn-time policy to"| RA
+    CR -->|"compiles per-session mcp config for"| RA
+    SM -->|"persists sessions and transcripts via"| ST
+    ST -->|"SQL over WAL"| DB
+    SM -->|"publishes session events on"| EB
+    AW -->|"publishes artifact events on"| EB
+    PG -->|"publishes permission notices on"| EB
+    SE -->|"publishes scheduler ticks on"| EB
+    SE -->|"fires triggers into"| SM
+    SE -->|"resolves auto-approve policy with"| PG
+    SE -->|"persists and reads tasks via"| ST
+    PG -->|"records grants and denials via"| ST
+    CR -->|"persists connector configs via"| ST

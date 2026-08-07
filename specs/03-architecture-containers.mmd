@@ -1,0 +1,20 @@
+---
+title: RH Co-work — Containers
+---
+graph TD
+    BR[Browser]
+    APP["RH Co-work App<br/><i>Python, FastAPI</i>"]
+    CLI["claude CLI subprocess<br/><i>per-session process</i>"]
+    DB[(SQLite)]
+    subgraph EXT["External"]
+        ANTH[Anthropic API]
+        HFS[(Host filesystem)]
+    end
+    BR -->|"JSON over HTTP and WS, 127.0.0.1:8xxx"| APP
+    APP -->|"serves UI, streams session and artifact events"| BR
+    APP -->|"spawns, NDJSON over stdin and stdout pipes"| CLI
+    CLI -->|"carries agent traffic"| ANTH
+    ANTH -->|"returns model responses"| CLI
+    APP -->|"SQL over WAL"| DB
+    CLI -->|"reads and writes user files and outputs dirs"| HFS
+    APP -->|"watches outputs dirs, stores artifacts"| HFS

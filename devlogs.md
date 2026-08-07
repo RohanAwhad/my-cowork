@@ -1,5 +1,45 @@
 # Devlogs — cowork
 
+## 2026-08-07 — Spec swarm COMPLETE: specs/ (14 docs, ~2450 lines) APPROVED by R3
+
+### What happened
+- Full swarm: 8 writer roles (W1 foundation, W2 architecture, W3 data/interfaces/runtime, W4a-f six PRDs, W5 security) + 3 reviewer roles (R1 compliance, R2 gap-hunter, R3 whole-spec validator) + 1 empirical CLI probe agent. Loop: writer → R1+R2 → fix → re-review; R3 gate = 8-point checklist → **APPROVED** (after 4 blockers fixed in round 5).
+
+### Critical empirical findings (CLI probe, claude 2.1.220, 2026-08-07 — ground truth)
+- **Directory-based hooks DEAD** — only settings.json `hooks` array registers. Killed two pre-probe hook layouts.
+- **Hook errors NON-BLOCKING** (exit 1/bad JSON → tool proceeds). Only explicit stdout `{"hookSpecificOutput":{"permissionDecision":"allow"|"deny"}}` blocks. → hooks = best-effort granular; THE boundary = spawn-time allowlist (denied-wins verified; unlisted → tool_result + `result.permission_denials[]`).
+- **NO `permission_request` events in `-p` mode** — Cowork's dialog permission model (SDK canUseTool) impossible with raw CLI → spawn-time policy + report-only notices.
+- **stream-json only with `-p` + REQUIRES `--verbose`**; first message via stdin NDJSON (argv prompt + silent stdin = zero events); health = first system/init (init carries session_id); `pending→running` requires init.
+- **`--append-system-prompt` verified** (model-side only, invisible in stream); **`--mcp-config` verified** (env honored, strict excludes project configs, `mcp__<server>__<tool>` naming, settings.json mcpServers silently ignored).
+- **Hooks hot-reload** + inherit CLI env (COWORK_SESSION_ID/COWORK_POLICY_FILE pattern).
+
+### Key locked decisions
+- One static PreToolUse hook (matcher `*`) appended to user settings.json WITH consent, never overwriting; per-session policy via env-addressed `~/.co-work/sessions/<id>/policy.json` (0600, deleted at session end).
+- Enforcement: allowlist + cwd + --add-dir = hard boundary; audit via PermissionRecord (grant|deny|approve_future|deleted_observed).
+- Scheduled: `--allowedTools` under manual ONLY (no bypassPermissions); matrix-blocked → --disallowedTools in scheduled too; approve_future interactive-only; one-active invariant inside Storage.transition(); missed-run replay = direct-create at boot (grid-preserving); 5 failures → auto-disable.
+- Memory v1 = `~/.co-work/memory.md` (64 KB, --append-system-prompt, hook carve-out); KBs v2. Deletion audit: watcher deletions → deleted_observed; no runtime deletion gate v1.
+- 04/05/06 carry 14 folded amendments (routes, connector_tools DDL, SpawnSpec env, Settings keys, on-disk layout incl. policy.json/hook-decisions.jsonl/server-token).
+
+### State
+- specs/ = 00-index, 01 mission, 02 constraints, 03 architecture (md + 3 C4 mmd, render-validated), 04 data model, 05 interfaces, 06 runtime, 07 security, glossary, prds/ (6). APPROVED.
+- Diagrams: `python3 specs/serve.py --port 8001` → `http://localhost:8001/03-architecture-components.mmd`.
+- Next: user verdict → commit; then implementation planning.
+
+## 2026-08-06 — Spec swarm: 04-data-model + 05-interfaces + 06-runtime written (W3)
+
+### What happened
+- Wrote `specs/04-data-model.md` (7 entities pydantic-shaped, SQLite DDL with WAL + indexes, on-disk layout `~/.co-work/`, Session + Task state-machine tables, queued-session handoff), `specs/05-interfaces.md` (10 component contracts, SpawnSpec + stream-json→SessionEvent mapping, stdin/health/teardown protocol), `specs/06-runtime.md` (process topology, startup/shutdown, concurrency rules, 10-row failure table, 10-row timeouts table, runner hardening).
+- Key decisions: data root `~/.co-work/`; port 127.0.0.1:8765; aiosqlite; artifact versioning hash+timestamp suffix; transcript assembled from stream-json (no CLI jsonl re-parse); scheduled conflict = queue as `queued` (never overlap); no `--resume` in v1; FolderGrant folded into Session.
+- Updated `specs/00-index.md` status rows 04/05/06 → written — pending review.
+
+## 2026-08-06 — Spec swarm: 03-architecture written (W2)
+
+### What happened
+- Wrote `specs/03-architecture.mmd` (3 diagrams: L1 context 5 nodes, L2 containers 8 nodes, L3 components 12 nodes; plain `graph TD` + subgraphs, frontmatter titles, no C4 DSL) and `specs/03-architecture.md` (boundaries, containers, component-to-RE mechanism map, 4 data-flow paragraphs, dropped-mechanism cross-ref, owned-by table).
+- Verified all 3 mermaid blocks parse with `mermaid` v11 + jsdom in a temp dir (mermaid 11 `parse()` passed 3/3; `render()` fails under jsdom only — `getBBox` missing, not a syntax issue).
+- Key divergence flagged: PermissionGate is spawn-time + fail-closed (raw `claude -p` emits no `permission_request`); ArtifactWatcher ≈ Cowork `FileSystemWatcher` fs_file_created (RE §1); SchedulerEngine ≈ RE §6 local store + auto-approve gate adapted to spawn time.
+- Updated `specs/00-index.md` status row for 03.
+
 ## 2026-08-06/07 — Static RE of Claude Cowork app complete (Phase 1+3 of RE campaign)
 
 ### What happened
