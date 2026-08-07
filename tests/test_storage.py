@@ -1,6 +1,7 @@
 """Tests for the storage layer using in-memory SQLite."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -10,8 +11,10 @@ import pytest_asyncio
 from app.models import (
     Artifact,
     PermissionRecord,
+    ScheduledTask,
     Session,
     SessionStatus,
+    TaskStatus,
 )
 from app.storage import Storage
 
@@ -213,3 +216,129 @@ async def test_record_permission_grant(storage: Storage) -> None:
     )
     created = await storage.record_permission(record)
     assert created.decision == "grant"
+
+
+# --- Concurrent one-active invariant regression ---
+
+
+@pytest.mark.asyncio
+async def test_concurrent_transition_to_running() -> None:
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = f"{tmpdir}/test.db"
+        setup_storage = Storage(db_path)
+        await setup_storage.init_db()
+
+        s1 = _make_session()
+        s2 = _make_session()
+        await setup_storage.create_session(s1)
+        await setup_storage.create_session(s2)
+        await setup_storage.close()
+
+        results: list[str] = []
+
+        async def try_run(sid: object) -> None:
+            conn = Storage(db_path)
+            await conn.init_db()
+            try:
+                await conn.update_session_status(sid, SessionStatus.RUNNING)  # type: ignore[arg-type]
+                results.append("OK")
+            except (ValueError, Exception):
+                results.append("BLOCKED")
+            finally:
+                await conn.close()
+
+        await asyncio.gather(try_run(s1.id), try_run(s2.id))
+
+        assert results.count("OK") == 1
+        assert results.count("BLOCKED") == 1
+
+        verify = Storage(db_path)
+        await verify.init_db()
+        running = await verify.list_sessions(status=SessionStatus.RUNNING)
+        assert len(running) == 1
+        await verify.close()
+
+
+# --- Task CRUD ---
+
+
+def _make_task(**overrides: object) -> ScheduledTask:
+    now = datetime.now(timezone.utc)
+    defaults = dict(
+        id=uuid4(),
+        name="daily backup",
+        prompt="run backup",
+        status=TaskStatus.ACTIVE,
+        created_at=now,
+        updated_at=now,
+    )
+    defaults.update(overrides)
+    return ScheduledTask(**defaults)
+
+
+@pytest.mark.asyncio
+async def test_create_and_get_task(storage: Storage) -> None:
+    task = _make_task()
+    created = await storage.create_task(task)
+    assert created.id == task.id
+
+    retrieved = await storage.get_task(task.id)
+    assert retrieved is not None
+    assert retrieved.name == "daily backup"
+    assert retrieved.status == TaskStatus.ACTIVE
+
+
+@pytest.mark.asyncio
+async def test_get_nonexistent_task(storage: Storage) -> None:
+    result = await storage.get_task(uuid4())
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_update_task(storage: Storage) -> None:
+    task = _make_task()
+    await storage.create_task(task)
+
+    updated = await storage.update_task(task.id, status=TaskStatus.PAUSED, name="weekly backup")
+    assert updated is not None
+    assert updated.status == TaskStatus.PAUSED
+    assert updated.name == "weekly backup"
+
+
+@pytest.mark.asyncio
+async def test_list_tasks(storage: Storage) -> None:
+    t1 = _make_task(status=TaskStatus.ACTIVE)
+    t2 = _make_task(status=TaskStatus.PAUSED)
+    await storage.create_task(t1)
+    await storage.create_task(t2)
+
+    all_tasks = await storage.list_tasks()
+    assert len(all_tasks) == 2
+
+    active = await storage.list_tasks(status=TaskStatus.ACTIVE)
+    assert len(active) == 1
+    assert active[0].id == t1.id
+
+
+@pytest.mark.asyncio
+async def test_task_full_fields_roundtrip(storage: Storage) -> None:
+    now = datetime.now(timezone.utc)
+    task = _make_task(
+        cadence="daily",
+        cron_expr="0 9 * * *",
+        allowed_tools=["Read", "Write"],
+        next_run_at=now,
+        last_run_at=now,
+        last_run_session_id=uuid4(),
+        last_run_error="timeout",
+    )
+    await storage.create_task(task)
+
+    retrieved = await storage.get_task(task.id)
+    assert retrieved is not None
+    assert retrieved.cadence == "daily"
+    assert retrieved.cron_expr == "0 9 * * *"
+    assert retrieved.allowed_tools == ["Read", "Write"]
+    assert retrieved.last_run_error == "timeout"
+    assert retrieved.last_run_session_id == task.last_run_session_id

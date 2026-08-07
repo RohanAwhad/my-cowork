@@ -27,7 +27,20 @@ class RequestTracingMiddleware(BaseHTTPMiddleware):
                 path=request.url.path,
             )
 
-            response = await call_next(request)
+            try:
+                response = await call_next(request)
+            except Exception:
+                duration_ms = round((time.monotonic() - start_time) * 1000, 2)
+                logger.opt(exception=True).error(
+                    "request_completed",
+                    method=request.method,
+                    path=request.url.path,
+                    status_code=500,
+                    duration_ms=duration_ms,
+                )
+                response = Response("Internal Server Error", status_code=500)
+                response.headers["X-Request-ID"] = request_id
+                return response
 
             duration_ms = round((time.monotonic() - start_time) * 1000, 2)
             logger.info(

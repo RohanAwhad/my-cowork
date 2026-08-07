@@ -17,8 +17,10 @@ from loguru import logger
 from app.models import (
     Artifact,
     PermissionRecord,
+    ScheduledTask,
     Session,
     SessionStatus,
+    TaskStatus,
 )
 
 _SCHEMA = """
@@ -137,7 +139,7 @@ class Storage:
 
     async def init_db(self) -> None:
         logger.info("init_db_started", db_path=self._db_path)
-        self._db = await aiosqlite.connect(self._db_path)
+        self._db = await aiosqlite.connect(self._db_path, isolation_level=None)
         self._db.row_factory = aiosqlite.Row
         await self._db.executescript(_SCHEMA)
         logger.info("init_db_completed", db_path=self._db_path)
@@ -203,14 +205,6 @@ class Storage:
     ) -> Session | None:
         logger.info("update_session_status", session_id=str(session_id), new_status=new_status.value)
         now = _now_iso()
-        if new_status == SessionStatus.RUNNING:
-            cursor = await self.db.execute(
-                "SELECT COUNT(*) FROM sessions WHERE status = ? AND id != ?",
-                (SessionStatus.RUNNING.value, str(session_id)),
-            )
-            count_row = await cursor.fetchone()
-            if count_row and count_row[0] > 0:
-                raise ValueError("Cannot transition to running: another session is already running")
 
         fields = ["status = ?", "updated_at = ?"]
         values: list[Any] = [new_status.value, now]
@@ -225,11 +219,25 @@ class Storage:
             values.append(now)
 
         values.append(str(session_id))
-        await self.db.execute(
-            f"UPDATE sessions SET {', '.join(fields)} WHERE id = ?",
-            values,
-        )
-        await self.db.commit()
+        set_clause = ", ".join(fields)
+
+        if new_status == SessionStatus.RUNNING:
+            await self.db.execute("BEGIN IMMEDIATE")
+            cursor = await self.db.execute(
+                f"UPDATE sessions SET {set_clause} WHERE id = ? "
+                "AND NOT EXISTS(SELECT 1 FROM sessions WHERE status = ? AND id != ?)",
+                values + [SessionStatus.RUNNING.value, str(session_id)],
+            )
+            if cursor.rowcount == 0:
+                await self.db.execute("ROLLBACK")
+                raise ValueError("Cannot transition to running: another session is already running")
+            await self.db.execute("COMMIT")
+        else:
+            await self.db.execute(
+                f"UPDATE sessions SET {set_clause} WHERE id = ?",
+                values,
+            )
+            await self.db.commit()
         result = await self.get_session(session_id)
         logger.info("update_session_status_completed", session_id=str(session_id), new_status=new_status.value)
         return result
@@ -319,6 +327,82 @@ class Storage:
         rows = await cursor.fetchall()
         return [_row_to_permission(r) for r in rows]
 
+    # --- Tasks ---
+
+    async def create_task(self, task: ScheduledTask) -> ScheduledTask:
+        logger.info("create_task", task_id=str(task.id))
+        await self.db.execute(
+            """INSERT INTO tasks (
+                id, name, cadence, cron_expr, prompt, allowed_tools,
+                status, next_run_at, last_run_at, last_run_session_id,
+                last_run_error, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                str(task.id), task.name, task.cadence, task.cron_expr,
+                task.prompt, json.dumps(task.allowed_tools),
+                task.status.value,
+                task.next_run_at.isoformat() if task.next_run_at else None,
+                task.last_run_at.isoformat() if task.last_run_at else None,
+                str(task.last_run_session_id) if task.last_run_session_id else None,
+                task.last_run_error,
+                task.created_at.isoformat(), task.updated_at.isoformat(),
+            ),
+        )
+        await self.db.commit()
+        logger.info("create_task_completed", task_id=str(task.id))
+        return task
+
+    async def get_task(self, task_id: UUID) -> ScheduledTask | None:
+        logger.debug("get_task", task_id=str(task_id))
+        cursor = await self.db.execute("SELECT * FROM tasks WHERE id = ?", (str(task_id),))
+        row = await cursor.fetchone()
+        if row is None:
+            return None
+        return _row_to_task(row)
+
+    async def update_task(self, task_id: UUID, **fields: Any) -> ScheduledTask | None:
+        logger.info("update_task", task_id=str(task_id), fields=list(fields.keys()))
+        if not fields:
+            return await self.get_task(task_id)
+
+        set_parts: list[str] = []
+        values: list[Any] = []
+        for key, val in fields.items():
+            if key == "status" and isinstance(val, TaskStatus):
+                val = val.value
+            elif key == "allowed_tools" and isinstance(val, list):
+                val = json.dumps(val)
+            elif key in ("next_run_at", "last_run_at") and isinstance(val, datetime):
+                val = val.isoformat()
+            elif key == "last_run_session_id" and val is not None:
+                val = str(val)
+            set_parts.append(f"{key} = ?")
+            values.append(val)
+
+        set_parts.append("updated_at = ?")
+        values.append(_now_iso())
+        values.append(str(task_id))
+
+        await self.db.execute(
+            f"UPDATE tasks SET {', '.join(set_parts)} WHERE id = ?",
+            values,
+        )
+        await self.db.commit()
+        result = await self.get_task(task_id)
+        logger.info("update_task_completed", task_id=str(task_id))
+        return result
+
+    async def list_tasks(self, status: TaskStatus | None = None) -> list[ScheduledTask]:
+        logger.debug("list_tasks", status=status.value if status else None)
+        if status:
+            cursor = await self.db.execute(
+                "SELECT * FROM tasks WHERE status = ? ORDER BY created_at DESC", (status.value,)
+            )
+        else:
+            cursor = await self.db.execute("SELECT * FROM tasks ORDER BY created_at DESC")
+        rows = await cursor.fetchall()
+        return [_row_to_task(r) for r in rows]
+
 
 def _row_to_session(row: aiosqlite.Row) -> Session:
     from app.models import ProcessIdentity
@@ -379,4 +463,22 @@ def _row_to_permission(row: aiosqlite.Row) -> PermissionRecord:
         input=json.loads(row["input"]),
         consumed_by_session_id=UUID(row["consumed_by_session_id"]) if row["consumed_by_session_id"] else None,
         created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+def _row_to_task(row: aiosqlite.Row) -> ScheduledTask:
+    return ScheduledTask(
+        id=UUID(row["id"]),
+        name=row["name"],
+        cadence=row["cadence"],
+        cron_expr=row["cron_expr"],
+        prompt=row["prompt"],
+        allowed_tools=json.loads(row["allowed_tools"]),
+        status=TaskStatus(row["status"]),
+        next_run_at=datetime.fromisoformat(row["next_run_at"]) if row["next_run_at"] else None,
+        last_run_at=datetime.fromisoformat(row["last_run_at"]) if row["last_run_at"] else None,
+        last_run_session_id=UUID(row["last_run_session_id"]) if row["last_run_session_id"] else None,
+        last_run_error=row["last_run_error"],
+        created_at=datetime.fromisoformat(row["created_at"]),
+        updated_at=datetime.fromisoformat(row["updated_at"]),
     )

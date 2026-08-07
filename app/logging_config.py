@@ -95,9 +95,11 @@ def setup_logging() -> None:
         enqueue=True,
     )
 
+    intercept_level = getattr(logging, log_level, logging.DEBUG)
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
         stdlib_logger = logging.getLogger(name)
         stdlib_logger.handlers = [InterceptHandler()]
+        stdlib_logger.setLevel(intercept_level)
         stdlib_logger.propagate = False
 
     logger.info("Logging configured", env=env, level=log_level)
