@@ -92,10 +92,10 @@ def _check_token(
     if authorization is not None:
         if authorization.startswith("Bearer "):
             token = authorization[7:]
-            if token == server_token:
+            if secrets.compare_digest(token, server_token):
                 return True
 
-    if x_workspace_token is not None and x_workspace_token == server_token:
+    if x_workspace_token is not None and secrets.compare_digest(x_workspace_token, server_token):
         return True
 
     return False
@@ -438,7 +438,7 @@ def create_app(
 
         resolved = file_path.resolve()
         base = session_dir.resolve()
-        if not str(resolved).startswith(str(base)):
+        if not resolved.is_relative_to(base):
             return JSONResponse(status_code=403, content={"detail": "Path traversal denied"})
 
         content_type, _ = mimetypes.guess_type(str(file_path))
@@ -456,9 +456,18 @@ def create_app(
 
     @app.websocket("/ws")
     async def ws_endpoint(websocket: WebSocket, token: str = Query()) -> None:
-        if token != _token:
+        if not secrets.compare_digest(token, _token):
             await websocket.close(code=1008, reason="Unauthorized")
             return
+
+        origin = websocket.headers.get("origin")
+        if origin is not None:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(origin)
+            if parsed.hostname not in ("localhost", "127.0.0.1", "::1"):
+                await websocket.close(code=1008, reason="Origin not allowed")
+                return
 
         await websocket.accept()
         _ws_clients.append(websocket)
