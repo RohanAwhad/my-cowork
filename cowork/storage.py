@@ -691,6 +691,15 @@ class Storage:
             return None
         return self._row_to_artifact(row)
 
+    async def mark_artifact_deleted(self, artifact_id: UUID) -> None:
+        logger.debug("storage.mark_artifact_deleted id={}", artifact_id)
+        now_iso = _iso(_utcnow())
+        await self._db.execute(
+            "UPDATE artifacts SET deleted_at = ?, modified_at = ? WHERE id = ?",
+            (now_iso, now_iso, _str_uuid(artifact_id)),
+        )
+        await self._db.commit()
+
     # ------------------------------------------------------------------
     # Permission operations
     # ------------------------------------------------------------------
