@@ -160,7 +160,7 @@ def create_app(
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         path = request.url.path
-        if path == "/health" or path.startswith("/static"):
+        if path in ("/", "/health") or path.startswith("/static"):
             return await call_next(request)
 
         auth_header = request.headers.get("authorization")
