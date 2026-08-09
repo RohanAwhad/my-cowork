@@ -348,7 +348,13 @@ async function screenshot(args, session) {
 
 async function mouse(args, session) {
   const tabId = requireCurrentTab(session);
-  const { type = 'move', x, y, button = 'left' } = args;
+  const { type = 'move', x, y, button = 'left', deltaX = 0, deltaY = 0 } = args;
+  if (type === 'wheel') {
+    await cdp(tabId, 'Input.dispatchMouseEvent', {
+      type: 'mouseWheel', x, y, deltaX, deltaY, button: 'none',
+    });
+    return { success: true, type, x, y, deltaX, deltaY };
+  }
   const events = type === 'click'
     ? ['mousePressed', 'mouseReleased']
     : type === 'press' ? ['mousePressed']

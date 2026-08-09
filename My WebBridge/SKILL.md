@@ -30,7 +30,7 @@ Every request carries a top-level `session`. One task = one session = one tab gr
 | `evaluate` | `code` (async allowed) | `{type, value}` |
 | `cdp` | `method`, `params` | raw CDP response |
 | `screenshot` | `format`(png\|jpeg), `quality` | `{format, data(base64), sizeBytes}` |
-| `mouse` | `type`(move\|press\|release\|click), `x`, `y`, `button` | `{success}` |
+| `mouse` | `type`(move\|press\|release\|click\|wheel), `x`, `y`, `button`, `deltaX`, `deltaY` | `{success}` |
 | `type` | `text` | `{success, text}` |
 | `list_tabs` | — | `{success, groupId, tabs:[{tabId,url,title,active}]}` |
 | `close_tab` | — | `{success, closed}` |
