@@ -143,7 +143,7 @@ async function getTabMeta(tabId) {
 }
 
 async function navigate(args, session) {
-  const { url, newTab = true, group_title } = args;
+  const { url, newTab = false, group_title } = args;
   const st = getSession(session);
   let tab;
   if (newTab) {

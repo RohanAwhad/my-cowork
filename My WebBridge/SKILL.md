@@ -22,7 +22,7 @@ Every request carries a top-level `session`. One task = one session = one tab gr
 
 | Tool | Args | Returns |
 |------|------|---------|
-| `navigate` | `url`, `newTab`(bool), `group_title` | `{success, url, tabId, groupTitle}` |
+| `navigate` | `url`, `newTab`(bool, default false = reuse current tab), `group_title` | `{success, url, tabId, groupTitle}` |
 | `find_tab` | `url`, `active`(bool) | `{success, url, tabId, borrowed}` |
 | `snapshot` | — | `{url, title, tree}` with `@e` refs (accessibility tree, text only) |
 | `click` | `selector` (@e ref or CSS) | `{success, tag, text}` |
