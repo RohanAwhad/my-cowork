@@ -35,6 +35,9 @@ Every request carries a top-level `session`. One task = one session = one tab gr
 | `list_tabs` | — | `{success, groupId, tabs:[{tabId,url,title,active}]}` |
 | `close_tab` | — | `{success, closed}` |
 | `close_session` | — | `{success, closed}` — closes the whole tab group |
+| `network` | `action`(list\|get_response\|clear, default list), `filter`(url substring), `limit`(default 50), `requestId` | `list`: `{requests:[{requestId,url,method,resourceType,status,mimeType,finished}]}`; `get_response`: `{requestId,body,base64Encoded}` |
+| `upload` | `selector` (@e ref or CSS, must be `<input type=file>`), `files`(array of absolute local paths) | `{success, selector, files}` |
+| `save_as_pdf` | `landscape`, `printBackground`, `scale`, `paperWidth`, `paperHeight`, margins | `{format:"pdf", data(base64), sizeBytes}` |
 
 Single-tab tools act on the session's current tab (the most recently opened/selected one).
 

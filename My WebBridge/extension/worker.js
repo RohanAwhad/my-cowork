@@ -84,6 +84,9 @@ async function executeTool({ tool, args, session }) {
     case 'screenshot': return screenshot(args, session);
     case 'mouse': return mouse(args, session);
     case 'type': return typeText(args, session);
+    case 'network': return network(args, session);
+    case 'upload': return upload(args, session);
+    case 'save_as_pdf': return saveAsPdf(args, session);
     default: throw new Error(`unknown tool: ${tool}`);
   }
 }
@@ -113,7 +116,7 @@ async function attach(tabId) {
     }
     throw err;
   }
-  for (const domain of ['Page', 'Runtime', 'DOM', 'Accessibility']) {
+  for (const domain of ['Page', 'Runtime', 'DOM', 'Accessibility', 'Network']) {
     try { await cdp(tabId, `${domain}.enable`); } catch (err) { /* non-fatal */ }
   }
 }
@@ -122,11 +125,50 @@ function cdp(tabId, method, params = {}) {
   return chrome.debugger.sendCommand({ tabId }, method, params);
 }
 
-chrome.debugger.onEvent.addListener((source, method) => {
-  if (method === 'Page.loadEventFired' && waiters.has(source.tabId)) {
-    const w = waiters.get(source.tabId);
-    waiters.delete(source.tabId);
+const NETWORK_LOG_CAP = 300;
+const networkLogs = new Map(); // tabId -> array of entries
+
+function getNetworkLog(tabId) {
+  if (!networkLogs.has(tabId)) networkLogs.set(tabId, []);
+  return networkLogs.get(tabId);
+}
+
+function upsertNetworkEntry(tabId, requestId, patch) {
+  const log = getNetworkLog(tabId);
+  let entry = log.find((e) => e.requestId === requestId);
+  if (!entry) {
+    entry = { requestId };
+    log.push(entry);
+    if (log.length > NETWORK_LOG_CAP) log.shift();
+  }
+  Object.assign(entry, patch);
+}
+
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  const tabId = source.tabId;
+  if (method === 'Page.loadEventFired' && waiters.has(tabId)) {
+    const w = waiters.get(tabId);
+    waiters.delete(tabId);
     w.resolve();
+    return;
+  }
+  if (method === 'Network.requestWillBeSent') {
+    upsertNetworkEntry(tabId, params.requestId, {
+      url: params.request.url,
+      method: params.request.method,
+      resourceType: params.type,
+      timestamp: params.wallTime,
+    });
+  } else if (method === 'Network.responseReceived') {
+    upsertNetworkEntry(tabId, params.requestId, {
+      status: params.response.status,
+      statusText: params.response.statusText,
+      mimeType: params.response.mimeType,
+    });
+  } else if (method === 'Network.loadingFinished') {
+    upsertNetworkEntry(tabId, params.requestId, { finished: true, encodedDataLength: params.encodedDataLength });
+  } else if (method === 'Network.loadingFailed') {
+    upsertNetworkEntry(tabId, params.requestId, { finished: true, failed: true, errorText: params.errorText });
   }
 });
 
@@ -371,4 +413,52 @@ async function typeText(args, session) {
   const tabId = requireCurrentTab(session);
   await cdp(tabId, 'Input.insertText', { text: args.text });
   return { success: true, text: args.text };
+}
+
+async function network(args, session) {
+  const tabId = requireCurrentTab(session);
+  const { action = 'list', filter, limit = 50, requestId } = args;
+  if (action === 'clear') {
+    networkLogs.set(tabId, []);
+    return { success: true };
+  }
+  if (action === 'get_response') {
+    if (!requestId) throw new Error('requestId required for get_response');
+    const res = await cdp(tabId, 'Network.getResponseBody', { requestId });
+    return { requestId, body: res.body, base64Encoded: res.base64Encoded };
+  }
+  let entries = getNetworkLog(tabId);
+  if (filter) entries = entries.filter((e) => e.url && e.url.includes(filter));
+  entries = entries.slice(-limit);
+  return { requests: entries };
+}
+
+async function upload(args, session) {
+  const tabId = requireCurrentTab(session);
+  const { selector, files } = args;
+  if (!files || !files.length) throw new Error('files (array of absolute local paths) required');
+  if (selector.startsWith('@e')) {
+    const ref = refs.get(selector);
+    if (!ref) throw new Error(`unknown ref ${selector}`);
+    await cdp(tabId, 'DOM.setFileInputFiles', { files, backendNodeId: ref.backendDOMNodeId });
+    return { success: true, selector, files };
+  }
+  const { root } = await cdp(tabId, 'DOM.getDocument', { depth: -1 });
+  const { nodeId } = await cdp(tabId, 'DOM.querySelector', { nodeId: root.nodeId, selector });
+  if (nodeId === 0) throw new Error(`no element matches ${selector}`);
+  await cdp(tabId, 'DOM.setFileInputFiles', { files, nodeId });
+  return { success: true, selector, files };
+}
+
+async function saveAsPdf(args, session) {
+  const tabId = requireCurrentTab(session);
+  const {
+    landscape = false, printBackground = true, scale,
+    paperWidth, paperHeight, marginTop, marginBottom, marginLeft, marginRight,
+  } = args;
+  const res = await cdp(tabId, 'Page.printToPDF', {
+    landscape, printBackground, scale, paperWidth, paperHeight,
+    marginTop, marginBottom, marginLeft, marginRight,
+  });
+  return { format: 'pdf', data: res.data, sizeBytes: Math.floor((res.data.length * 3) / 4) };
 }
