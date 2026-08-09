@@ -29,6 +29,15 @@ curl -X POST http://127.0.0.1:10087/command \
   -d '{"action":"navigate","args":{"url":"https://example.com","newTab":true,"group_title":"demo"},"session":"demo"}'
 ```
 
+Or spin up Claude Code, have it copy `SKILL.md` into its skills dir, then ask it to drive the browser:
+
+```bash
+mkdir -p ~/.claude/skills/my-webbridge
+cp SKILL.md ~/.claude/skills/my-webbridge/SKILL.md
+```
+
+Then prompt: *"go to YouTube and rickroll me use web-brdge skill."*.
+
 ## Roadmap
 
 - [ ] Restore automated e2e test (Playwright: auto-load extension, YouTube search + video playback in tab group) — removed, was not fully green (MV3 SW idle-kill mid-command, YouTube shadow-DOM selectors)
