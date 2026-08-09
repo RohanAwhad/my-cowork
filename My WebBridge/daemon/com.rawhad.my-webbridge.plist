@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.rawhad.my-webbridge</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/rawhad/1_Projects/personal_projects/cowork/My WebBridge/daemon/.venv/bin/python</string>
+        <string>/Users/rawhad/1_Projects/personal_projects/cowork/My WebBridge/daemon/daemon.py</string>
+        <string>--port</string>
+        <string>10087</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/rawhad/1_Projects/personal_projects/cowork/My WebBridge/daemon</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>/Users/rawhad/1_Projects/personal_projects/cowork/My WebBridge/logs/daemon.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/rawhad/1_Projects/personal_projects/cowork/My WebBridge/logs/daemon.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,11 @@
+.DS_Store
+
+My WebBridge/daemon/.venv/
+My WebBridge/daemon/__pycache__/
+My WebBridge/test/node_modules/
+My WebBridge/test/test-results/
+My WebBridge/test/playwright-report/
+My WebBridge/logs/
+
+*.pyc
+__pycache__/

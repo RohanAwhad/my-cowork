@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "My WebBridge",
+  "version": "0.1.0",
+  "description": "Minimal local browser bridge: daemon-driven CDP control via WebSocket, mirroring kimi-webbridge",
+  "background": {
+    "service_worker": "worker.js"
+  },
+  "permissions": ["debugger", "tabs", "tabGroups"],
+  "host_permissions": ["http://127.0.0.1:10087/*", "ws://127.0.0.1:10087/*"]
+}
