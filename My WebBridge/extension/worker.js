@@ -148,13 +148,10 @@ async function navigate(args, session) {
   let tab;
   if (newTab) {
     tab = await chrome.tabs.create({ url });
+  } else if (st.currentTabId !== null) {
+    tab = await chrome.tabs.update(st.currentTabId, { url });
   } else {
-    const first = st.tabs.values().next().value;
-    if (first !== undefined) {
-      tab = await chrome.tabs.update(first, { url });
-    } else {
-      tab = await chrome.tabs.create({ url });
-    }
+    tab = await chrome.tabs.create({ url });
   }
   await attach(tab.id);
   const loaded = waitForLoad(tab.id);
@@ -198,11 +195,11 @@ async function listTabs(session) {
 
 async function closeTab(session) {
   const st = getSession(session);
-  const first = st.tabs.values().next().value;
-  if (first === undefined) return { success: true, closed: false };
-  await chrome.tabs.remove(first);
-  st.tabs.delete(first);
-  if (st.tabs.size === 0) st.currentTabId = null;
+  const id = st.currentTabId;
+  if (id === null) return { success: true, closed: false };
+  await chrome.tabs.remove(id);
+  st.tabs.delete(id);
+  st.currentTabId = null;
   return { success: true, closed: true };
 }
 
