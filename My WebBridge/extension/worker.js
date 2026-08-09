@@ -199,6 +199,13 @@ async function navigate(args, session) {
   const loaded = waitForLoad(tab.id);
   await cdp(tab.id, 'Page.navigate', { url });
   await loaded;
+  if (st.groupId !== null) {
+    try {
+      await chrome.tabGroups.get(st.groupId);
+    } catch (err) {
+      st.groupId = null; // group was manually closed/removed; recreate below
+    }
+  }
   if (st.groupId === null) {
     const groupId = await chrome.tabs.group({ tabIds: [tab.id] });
     st.groupId = groupId;
